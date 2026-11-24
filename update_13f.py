@@ -2,10 +2,9 @@ import json
 from datetime import datetime, timezone
 from edgar import Company, set_identity
 
-# SEC EDGAR 규정에 따른 User-Agent 식별자 설정 (본인 이메일로 변경 권장)
+# SEC EDGAR User-Agent 설정
 set_identity("Alpha13F_Tracker admin@alpha13f-tracker.io")
 
-# 월가 TOP 20 투자자 메타데이터 및 SEC 공식 CIK 번호
 INVESTORS_META = [
     {"id": "buffett", "cik": "0001067983", "name": "워런 버핏", "enName": "Warren Buffett", "firm": "Berkshire Hathaway", "style": "value", "styleLabel": "가치투자", "philosophy": "경제적 해자를 가진 우량 기업의 장기 보유 및 현금흐름 중시"},
     {"id": "dalio", "cik": "0001350694", "name": "레이 달리오", "enName": "Ray Dalio", "firm": "Bridgewater Associates", "style": "macro", "styleLabel": "매크로/헤지", "philosophy": "올웨더(All Weather) 리스크 패리티 및 글로벌 거시경제 분산"},
@@ -29,50 +28,204 @@ INVESTORS_META = [
     {"id": "laffont", "cik": "0001135730", "name": "필립 라폰트", "enName": "Philippe Laffont", "firm": "Coatue Management", "style": "growth", "styleLabel": "성장/혁신", "philosophy": "데이터 사이언스 기반의 글로벌 테크·AI·클라우드 성장주 투자"}
 ]
 
+def to_quarter_label(date_str):
+    try:
+        dt = datetime.strptime(str(date_str)[:10], "%Y-%m-%d")
+        q = (dt.month - 1) // 3 + 1
+        return f"{dt.year} Q{q}"
+    except Exception:
+        return str(date_str)[:10]
+
+def parse_infotable(filing):
+    obj = filing.obj()
+    df = getattr(obj, "infotable", None)
+    if df is None or df.empty:
+        return None
+
+    df = df.copy()
+    # 컬럼명 대소문자 및 변형 안전 처리
+    col_map = {c.lower(): c for c in df.columns}
+    cusip_col = col_map.get("cusip")
+    issuer_col = col_map.get("issuer") or col_map.get("nameofissuer")
+    ticker_col = col_map.get("ticker")
+    val_col = col_map.get("value")
+    shares_col = col_map.get("shares") or col_map.get("sshprnamt")
+
+    if not val_col or not shares_col:
+        return None
+
+    df["ValueNum"] = df[val_col].astype(float)
+    df["SharesNum"] = df[shares_col].astype(float)
+
+    # 13F 단위 보정 (천 달러 표기인 경우 달러로 변환)
+    multiplier = 1000 if df["ValueNum"].sum() < 50_000_000 else 1
+    df["ValueUSD"] = df["ValueNum"] * multiplier
+
+    df["CleanTicker"] = df[ticker_col].fillna("").astype(str).str.strip() if ticker_col else ""
+    df["CleanIssuer"] = df[issuer_col].fillna("Unknown").astype(str).str.strip() if issuer_col else "Unknown"
+    df["CleanCusip"] = df[cusip_col].fillna("").astype(str).str.strip() if cusip_col else df["CleanIssuer"]
+
+    # 고유 키: CUSIP 우선, 없으면 Issuer 이름
+    df["Key"] = df["CleanCusip"].where(df["CleanCusip"] != "", df["CleanIssuer"])
+
+    grouped = df.groupby("Key", as_index=False).agg({
+        "CleanTicker": "first",
+        "CleanIssuer": "first",
+        "ValueUSD": "sum",
+        "SharesNum": "sum"
+    })
+    return grouped
+
 def fetch_all_13f():
     results = []
+    # 추적할 최대 과거 공시 수 (최근 12개 분기 = 약 3년치 매매 이력)
+    MAX_QUARTERS = 12
+
     for meta in INVESTORS_META:
         try:
-            print(f"[{meta['enName']}] SEC 13F 공시 조회 중...")
+            print(f"[{meta['enName']}] SEC 13F-HR 다분기 이력 조회 중...")
             company = Company(meta["cik"])
             filings = company.get_filings(form="13F-HR")
             if not filings or len(filings) == 0:
+                print(f"  -> 공시 없음: {meta['enName']}")
                 continue
 
-            latest_filing = filings[0]
-            thirteen_f = latest_filing.obj()
-            df = thirteen_f.infotable
+            # 분기별 중복(수정공시 13F-HR/A 등) 제거 후 기준일별 최신 1건만 유지
+            period_filings = {}
+            for f in filings[:MAX_QUARTERS * 2]:
+                p = str(f.period_of_report)[:10]
+                if p not in period_filings:
+                    period_filings[p] = f
+                if len(period_filings) >= MAX_QUARTERS:
+                    break
 
-            if df is None or df.empty:
+            # 오래된 분기 -> 최신 분기 순 정렬
+            sorted_periods = sorted(period_filings.keys())
+            quarterly_snapshots = []
+
+            for p in sorted_periods:
+                f = period_filings[p]
+                parsed = parse_infotable(f)
+                if parsed is not None and not parsed.empty:
+                    total_val = parsed["ValueUSD"].sum()
+                    parsed["Weight"] = (parsed["ValueUSD"] / total_val * 100).round(2) if total_val > 0 else 0
+                    quarterly_snapshots.append({
+                        "period": p,
+                        "quarter": to_quarter_label(p),
+                        "filingDate": str(f.filing_date)[:10],
+                        "data": parsed.set_index("Key").to_dict("index")
+                    })
+
+            if not quarterly_snapshots:
                 continue
 
-            # 동일 종목(CUSIP/Ticker) 합산 처리 (옵션/다중 계좌 통합)
-            df["Value"] = df["Value"].astype(float)
-            df["Shares"] = df["Shares"].astype(float)
-            
-            # SEC 13F Value 단위 보정 (천 달러 단위인 경우 달러로 환산)
-            total_raw = df["Value"].sum()
-            multiplier = 1000 if total_raw < 50_000_000 else 1
-            df["ValueUSD"] = df["Value"] * multiplier
+            # 종목(Key)별 전체 분기 타임라인 분석
+            all_keys = set()
+            for snap in quarterly_snapshots:
+                all_keys.update(snap["data"].keys())
 
-            grouped = df.groupby(["Issuer", "Ticker"], dropna=False).agg({
-                "ValueUSD": "sum",
-                "Shares": "sum"
-            }).reset_index().sort_values(by="ValueUSD", ascending=False)
+            history_by_key = {}
+            for key in all_keys:
+                first_bought = None
+                add_events = []      # 추가매수 이력
+                trim_events = []     # 비중축소(일부매도) 이력
+                timeline = []        # 전체 분기별 변화 기록
+                prev_shares = 0
+                prev_weight = 0
 
-            total_aum_usd = grouped["ValueUSD"].sum()
+                for idx, snap in enumerate(quarterly_snapshots):
+                    item = snap["data"].get(key)
+                    q_label = snap["quarter"]
+                    f_date = snap["filingDate"]
+
+                    if item and item["SharesNum"] > 0:
+                        curr_shares = item["SharesNum"]
+                        curr_weight = item["Weight"]
+
+                        if prev_shares == 0:
+                            if first_bought is None:
+                                first_bought = f"{q_label} ({f_date} 공시)"
+                            action = "신규 매수" if idx > 0 else "보유 확인 (추적 시작)"
+                            change_pct = 100.0
+                            timeline.append({
+                                "quarter": q_label,
+                                "filingDate": f_date,
+                                "action": action,
+                                "shares": int(curr_shares),
+                                "weight": curr_weight,
+                                "changePct": None
+                            })
+                        else:
+                            diff_pct = round(((curr_shares - prev_shares) / prev_shares) * 100, 1)
+                            if diff_pct >= 1.0:
+                                action = "추가 매수"
+                                add_events.append(f"{q_label} (+{diff_pct}%)")
+                            elif diff_pct <= -1.0:
+                                action = "비중 축소"
+                                trim_events.append(f"{q_label} ({diff_pct}%)")
+                            else:
+                                action = "비중 유지"
+
+                            timeline.append({
+                                "quarter": q_label,
+                                "filingDate": f_date,
+                                "action": action,
+                                "shares": int(curr_shares),
+                                "weight": curr_weight,
+                                "changePct": diff_pct
+                            })
+
+                        prev_shares = curr_shares
+                        prev_weight = curr_weight
+                    else:
+                        if prev_shares > 0:
+                            trim_events.append(f"{q_label} (전량 매도)")
+                            timeline.append({
+                                "quarter": q_label,
+                                "filingDate": f_date,
+                                "action": "전량 매도",
+                                "shares": 0,
+                                "weight": 0,
+                                "changePct": -100.0
+                            })
+                        prev_shares = 0
+                        prev_weight = 0
+
+                # 최초 매수가 추적 시작 첫 분기와 같으면 '이전부터 보유' 표기 보완
+                if quarterly_snapshots[0]["data"].get(key):
+                    first_bought = f"{quarterly_snapshots[0]['quarter']} 이전부터 보유"
+
+                history_by_key[key] = {
+                    "firstBought": first_bought,
+                    "addHistory": add_events[-4:],      # 최근 4회 추가매수
+                    "trimHistory": trim_events[-4:],    # 최근 4회 비중축소
+                    "timeline": list(reversed(timeline)) # 최신 분기순 정렬
+                }
+
+            # 최신 분기 기준 포트폴리오 정리
+            latest_snap = quarterly_snapshots[-1]
+            latest_df = parse_infotable(period_filings[latest_snap["period"]])
+            latest_df = latest_df.sort_values(by="ValueUSD", ascending=False)
+            total_aum_usd = latest_df["ValueUSD"].sum()
+
             top_holdings = []
-
-            for _, row in grouped.head(15).iterrows():
-                ticker = str(row["Ticker"]) if str(row["Ticker"]) not in ["None", "nan", ""] else str(row["Issuer"])[:6].upper()
+            for _, row in latest_df.head(20).iterrows():
+                key = row["Key"]
+                ticker = row["CleanTicker"] if row["CleanTicker"] else row["CleanIssuer"][:6].upper()
                 val_usd = float(row["ValueUSD"])
                 weight = round((val_usd / total_aum_usd) * 100, 2) if total_aum_usd > 0 else 0
+                hist = history_by_key.get(key, {})
+
                 top_holdings.append({
                     "ticker": ticker,
-                    "name": str(row["Issuer"]).title(),
+                    "name": row["CleanIssuer"].title(),
                     "weight": weight,
                     "valueB": round(val_usd / 1e9, 3),
-                    "shares": int(row["Shares"])
+                    "shares": int(row["SharesNum"]),
+                    "firstBought": hist.get("firstBought", "-"),
+                    "addHistory": hist.get("addHistory", []),
+                    "trimHistory": hist.get("trimHistory", []),
+                    "timeline": hist.get("timeline", [])
                 })
 
             top5_weight = round(sum(h["weight"] for h in top_holdings[:5]), 1)
@@ -86,13 +239,16 @@ def fetch_all_13f():
                 "style": meta["style"],
                 "styleLabel": meta["styleLabel"],
                 "philosophy": meta["philosophy"],
-                "filingDate": str(latest_filing.filing_date),
-                "reportPeriod": str(latest_filing.period_of_report),
+                "filingDate": latest_snap["filingDate"],
+                "reportPeriod": latest_snap["period"],
+                "trackedQuarters": len(quarterly_snapshots),
                 "aumB": round(total_aum_usd / 1e9, 2),
-                "holdingsCount": len(grouped),
+                "holdingsCount": len(latest_df),
                 "top5Weight": top5_weight,
                 "holdings": top_holdings
             })
+            print(f"  -> 완료: {meta['enName']} ({len(quarterly_snapshots)}개 분기 추적, {len(latest_df)}종목)")
+
         except Exception as e:
             print(f"Error fetching {meta['enName']}: {e}")
 
@@ -103,7 +259,7 @@ def fetch_all_13f():
 
     with open("data.json", "w", encoding="utf-8") as f:
         json.dump(output, f, ensure_ascii=False, indent=2)
-    print("data.json 업데이트 완료!")
+    print(f"총 {len(results)}명의 투자자 데이터 저장 완료!")
 
 if __name__ == "__main__":
     fetch_all_13f()
