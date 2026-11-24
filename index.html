@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ALPHA13F | 월가 TOP 20 슈퍼투자자 포트폴리오 & 매매 타임라인</title>
+  <title>ALPHA13F | 월가 TOP 20 슈퍼투자자 포트폴리오 & 원그래프</title>
   <script src="https://cdn.tailwindcss.com"></script>
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Noto+Sans+KR:wght@400;500;700&display=swap" rel="stylesheet">
@@ -42,26 +42,26 @@
     <div id="view-investors" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
       
       <!-- 좌측 사이드바 -->
-      <aside class="lg:col-span-4 flex flex-col gap-4">
+      <aside class="lg:col-span-3 flex flex-col gap-4">
         <div class="glass-card rounded-xl p-4">
-          <input id="searchInput" type="text" placeholder="투자자, 운용사, 티커(예: NVDA, AAPL) 검색..." 
-            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3.5 py-2.5 text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
+          <input id="searchInput" type="text" placeholder="투자자, 운용사, 티커 검색..." 
+            class="w-full bg-slate-900 border border-slate-700 rounded-lg px-3 py-2 text-xs sm:text-sm text-white placeholder-slate-500 focus:outline-none focus:border-emerald-500" />
           
           <div id="styleFilters" class="flex flex-wrap gap-1.5 mt-3">
-            <button data-style="all" class="filter-btn active px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">전체</button>
-            <button data-style="value" class="filter-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/80 text-slate-400 hover:text-white">가치투자</button>
-            <button data-style="growth" class="filter-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/80 text-slate-400 hover:text-white">성장/혁신</button>
-            <button data-style="macro" class="filter-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/80 text-slate-400 hover:text-white">매크로/헤지</button>
-            <button data-style="activist" class="filter-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/80 text-slate-400 hover:text-white">행동주의</button>
-            <button data-style="quant" class="filter-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/80 text-slate-400 hover:text-white">퀀트</button>
+            <button data-style="all" class="filter-btn active px-2 py-1 rounded-md text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/40">전체</button>
+            <button data-style="value" class="filter-btn px-2 py-1 rounded-md text-[11px] font-medium bg-slate-800/80 text-slate-400 hover:text-white">가치투자</button>
+            <button data-style="growth" class="filter-btn px-2 py-1 rounded-md text-[11px] font-medium bg-slate-800/80 text-slate-400 hover:text-white">성장/혁신</button>
+            <button data-style="macro" class="filter-btn px-2 py-1 rounded-md text-[11px] font-medium bg-slate-800/80 text-slate-400 hover:text-white">매크로</button>
+            <button data-style="activist" class="filter-btn px-2 py-1 rounded-md text-[11px] font-medium bg-slate-800/80 text-slate-400 hover:text-white">행동주의</button>
+            <button data-style="quant" class="filter-btn px-2 py-1 rounded-md text-[11px] font-medium bg-slate-800/80 text-slate-400 hover:text-white">퀀트</button>
           </div>
         </div>
 
-        <div id="investorList" class="space-y-2 max-h-[720px] overflow-y-auto pr-1"></div>
+        <div id="investorList" class="space-y-2 max-h-[760px] overflow-y-auto pr-1"></div>
       </aside>
 
       <!-- 우측 메인 패널 -->
-      <section id="investorDetail" class="lg:col-span-8 space-y-6"></section>
+      <section id="investorDetail" class="lg:col-span-9 space-y-6"></section>
     </div>
 
     <!-- 뷰 2: 공통 보유 인기 종목 랭킹 -->
@@ -87,7 +87,6 @@
         <button onclick="document.getElementById('timelineModal').classList.add('hidden')" class="text-slate-400 hover:text-white text-lg px-2">✕</button>
       </div>
 
-      <!-- 요약 카드 3개: 최초 매수 / 추가 매수 / 비중 조절 -->
       <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 mt-4">
         <div class="bg-slate-900/90 border border-slate-800 rounded-xl p-3">
           <p class="text-[11px] text-slate-400">최초 매수 시점</p>
@@ -103,7 +102,6 @@
         </div>
       </div>
 
-      <!-- 분기별 전체 히스토리 테이블 -->
       <div class="mt-5">
         <h4 class="text-xs font-bold text-slate-300 mb-2.5">분기별 보유 수량 및 비중 변화 타임라인</h4>
         <div class="overflow-x-auto border border-slate-800 rounded-xl">
@@ -129,6 +127,12 @@
     let selectedId = null;
     let currentStyle = 'all';
     let portfolioChart = null;
+    let chartType = 'pie'; // 'pie' (원그래프) 또는 'doughnut' (도넛그래프)
+
+    const CHART_COLORS = [
+      '#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899',
+      '#06b6d4', '#f97316', '#84cc16', '#6366f1', '#14b8a6', '#475569'
+    ];
 
     async function initApp() {
       try {
@@ -139,7 +143,7 @@
         
         if (allInvestors.length === 0) {
           document.getElementById('syncStatus').innerHTML = 
-            `<span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>data.json이 비어 있습니다. Actions 탭에서 워크플로우를 다시 실행해 주세요.`;
+            `<span class="inline-block w-2 h-2 rounded-full bg-amber-400 mr-1"></span>data.json이 비어 있습니다. Actions 탭에서 워크플로우를 실행해 주세요.`;
           return;
         }
 
@@ -167,6 +171,12 @@
         : 'px-3.5 py-1.5 rounded-lg text-xs sm:text-sm font-semibold text-slate-300 hover:bg-slate-800 transition';
     }
 
+    function setChartType(type) {
+      chartType = type;
+      const inv = allInvestors.find(i => i.id === selectedId);
+      if (inv) renderChart(inv);
+    }
+
     function renderInvestorList() {
       const q = document.getElementById('searchInput').value.trim().toLowerCase();
       const filtered = allInvestors.filter(inv => {
@@ -181,18 +191,18 @@
         const isActive = inv.id === selectedId;
         return `
           <div onclick="selectInvestor('${inv.id}')" 
-            class="cursor-pointer rounded-xl p-3.5 transition border ${isActive ? 'bg-slate-800/90 border-emerald-500/60' : 'glass-card hover:border-slate-600'}">
-            <div class="flex items-center justify-between">
-              <div>
-                <div class="flex items-center gap-2">
-                  <span class="font-bold text-sm text-white">${inv.name}</span>
-                  <span class="text-[11px] px-2 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700">${inv.styleLabel}</span>
+            class="cursor-pointer rounded-xl p-3 transition border ${isActive ? 'bg-slate-800/90 border-emerald-500/60' : 'glass-card hover:border-slate-600'}">
+            <div class="flex items-center justify-between gap-2">
+              <div class="min-w-0">
+                <div class="flex items-center gap-1.5">
+                  <span class="font-bold text-xs sm:text-sm text-white truncate">${inv.name}</span>
+                  <span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-emerald-400 border border-slate-700 shrink-0">${inv.styleLabel}</span>
                 </div>
-                <p class="text-xs text-slate-400 mt-0.5">${inv.firm}</p>
+                <p class="text-[11px] text-slate-400 truncate mt-0.5">${inv.firm}</p>
               </div>
-              <div class="text-right">
+              <div class="text-right shrink-0">
                 <p class="text-xs font-semibold text-slate-200">$${inv.aumB.toLocaleString()}B</p>
-                <p class="text-[11px] text-slate-500">${inv.holdingsCount}종목</p>
+                <p class="text-[10px] text-slate-500">${inv.holdingsCount}종목</p>
               </div>
             </div>
           </div>
@@ -210,16 +220,24 @@
       const inv = allInvestors.find(i => i.id === selectedId);
       if (!inv) return;
 
+      const top10 = inv.holdings.slice(0, 10);
+      const otherWeight = Math.max(0, round2(100 - top10.reduce((sum, h) => sum + h.weight, 0)));
+      const legendItems = [
+        ...top10.map((h, idx) => ({ label: h.ticker, name: h.name, weight: h.weight, color: CHART_COLORS[idx] })),
+        ...(otherWeight > 0 ? [{ label: '기타', name: '나머지 보유 종목', weight: otherWeight, color: CHART_COLORS[10] }] : [])
+      ];
+
       const detail = document.getElementById('investorDetail');
       detail.innerHTML = `
-        <div class="glass-card rounded-xl p-6">
-          <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-5">
+        <!-- 상단 요약 헤더 -->
+        <div class="glass-card rounded-xl p-5 sm:p-6">
+          <div class="flex flex-wrap items-start justify-between gap-4 border-b border-slate-800 pb-4">
             <div>
               <div class="flex items-center gap-2.5">
-                <h2 class="text-2xl font-bold text-white">${inv.name} <span class="text-sm font-normal text-slate-400">(${inv.enName})</span></h2>
-                <span class="text-xs px-2.5 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">${inv.styleLabel}</span>
+                <h2 class="text-xl sm:text-2xl font-bold text-white">${inv.name} <span class="text-sm font-normal text-slate-400">(${inv.enName})</span></h2>
+                <span class="text-xs px-2.5 py-0.5 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30">${inv.styleLabel}</span>
               </div>
-              <p class="text-sm text-emerald-400 font-medium mt-1">${inv.firm} · 최근 ${inv.trackedQuarters || 12}개 분기 이력 추적</p>
+              <p class="text-xs sm:text-sm text-emerald-400 font-medium mt-1">${inv.firm} · 최근 ${inv.trackedQuarters || 8}개 분기 이력 추적</p>
               <p class="text-xs text-slate-300 mt-2.5 bg-slate-900/90 px-3.5 py-2 rounded-lg border border-slate-800">💡 ${inv.philosophy}</p>
             </div>
             <div class="text-right text-xs text-slate-400">
@@ -228,28 +246,62 @@
             </div>
           </div>
 
-          <div class="grid grid-cols-3 gap-4 mt-5">
-            <div class="bg-slate-900/80 rounded-lg p-3.5 border border-slate-800">
-              <p class="text-xs text-slate-400">13F 총 주식 운용자산</p>
-              <p class="text-lg sm:text-xl font-bold text-white mt-1">$${inv.aumB.toLocaleString()}B</p>
+          <div class="grid grid-cols-3 gap-3 sm:gap-4 mt-4">
+            <div class="bg-slate-900/80 rounded-lg p-3 border border-slate-800">
+              <p class="text-[11px] text-slate-400">13F 총 주식 운용자산</p>
+              <p class="text-base sm:text-xl font-bold text-white mt-0.5">$${inv.aumB.toLocaleString()}B</p>
             </div>
-            <div class="bg-slate-900/80 rounded-lg p-3.5 border border-slate-800">
-              <p class="text-xs text-slate-400">상위 5개 종목 집중도</p>
-              <p class="text-lg sm:text-xl font-bold text-emerald-400 mt-1">${inv.top5Weight}%</p>
+            <div class="bg-slate-900/80 rounded-lg p-3 border border-slate-800">
+              <p class="text-[11px] text-slate-400">상위 5개 종목 집중도</p>
+              <p class="text-base sm:text-xl font-bold text-emerald-400 mt-0.5">${inv.top5Weight}%</p>
             </div>
-            <div class="bg-slate-900/80 rounded-lg p-3.5 border border-slate-800">
-              <p class="text-xs text-slate-400">총 보유 종목 수</p>
-              <p class="text-lg sm:text-xl font-bold text-white mt-1">${inv.holdingsCount.toLocaleString()}개</p>
+            <div class="bg-slate-900/80 rounded-lg p-3 border border-slate-800">
+              <p class="text-[11px] text-slate-400">총 보유 종목 수</p>
+              <p class="text-base sm:text-xl font-bold text-white mt-0.5">${inv.holdingsCount.toLocaleString()}개</p>
             </div>
           </div>
         </div>
 
-        <div class="glass-card rounded-xl p-5">
-          <div class="flex items-center justify-between mb-3">
+        <!-- 핵심 원그래프(파이 차트) 섹션 -->
+        <div class="glass-card rounded-xl p-5 sm:p-6">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-4">
             <div>
-              <h3 class="text-sm font-bold text-slate-200">핵심 보유 종목 & 매매 이력 요약</h3>
-              <p class="text-[11px] text-slate-400 mt-0.5">종목 행을 클릭하면 분기별 최초 매수·추가 매수·비중 조절 상세 타임라인이 열립니다.</p>
+              <h3 class="text-sm sm:text-base font-bold text-white">📊 ${inv.name} 포트폴리오 종목 비중 원그래프 (TOP 10)</h3>
+              <p class="text-[11px] text-slate-400 mt-0.5">그래프 조각에 마우스를 올리면 정확한 비중(%), 평가액($B), 보유 주식 수가 표시됩니다.</p>
             </div>
+            <div class="flex items-center gap-1 bg-slate-900 p-1 rounded-lg border border-slate-800">
+              <button onclick="setChartType('pie')" id="btn-pie" class="px-2.5 py-1 rounded text-xs font-semibold bg-emerald-500 text-slate-950 transition">원그래프</button>
+              <button onclick="setChartType('doughnut')" id="btn-doughnut" class="px-2.5 py-1 rounded text-xs font-semibold text-slate-400 hover:text-white transition">도넛형</button>
+            </div>
+          </div>
+
+          <div class="grid grid-cols-1 md:grid-cols-12 gap-6 items-center">
+            <!-- 원그래프 캔버스 -->
+            <div class="md:col-span-6 relative h-72 w-full flex items-center justify-center">
+              <canvas id="holdingsChart"></canvas>
+            </div>
+
+            <!-- 우측 컬러 범례 및 비중 바 -->
+            <div class="md:col-span-6 space-y-2 max-h-72 overflow-y-auto pr-1">
+              ${legendItems.map(item => `
+                <div class="flex items-center justify-between bg-slate-900/75 border border-slate-800/80 rounded-lg px-3 py-2 text-xs">
+                  <div class="flex items-center gap-2.5 min-w-0">
+                    <span class="w-3 h-3 rounded-full shrink-0" style="background-color: ${item.color}"></span>
+                    <span class="font-bold text-white">${item.label}</span>
+                    <span class="text-slate-400 truncate text-[11px]">${item.name}</span>
+                  </div>
+                  <span class="font-bold text-emerald-400 shrink-0 ml-2">${item.weight}%</span>
+                </div>
+              `).join('')}
+            </div>
+          </div>
+        </div>
+
+        <!-- 종목별 상세 매매 이력 테이블 -->
+        <div class="glass-card rounded-xl p-5 sm:p-6">
+          <div class="mb-3">
+            <h3 class="text-sm sm:text-base font-bold text-white">보유 종목 상세 & 매매 이력 타임라인</h3>
+            <p class="text-[11px] text-slate-400 mt-0.5">종목을 클릭하면 최초 매수 시점부터 분기별 추가매수·비중조절 전체 이력을 확인할 수 있습니다.</p>
           </div>
           <div class="overflow-x-auto">
             <table class="w-full text-left border-collapse text-xs">
@@ -272,7 +324,7 @@
                       <td class="py-2.5 px-2 text-slate-500">${idx + 1}</td>
                       <td class="py-2.5 px-2">
                         <span class="font-bold text-emerald-400">${h.ticker}</span>
-                        <span class="block text-[11px] text-slate-400 truncate max-w-[140px]">${h.name}</span>
+                        <span class="block text-[11px] text-slate-400 truncate max-w-[150px]">${h.name}</span>
                       </td>
                       <td class="py-2.5 px-2 text-right font-semibold text-white">${h.weight}%<span class="block text-[10px] text-slate-500">$${h.valueB}B</span></td>
                       <td class="py-2.5 px-2 text-slate-300 text-[11px]">${h.firstBought || '-'}</td>
@@ -285,16 +337,88 @@
             </table>
           </div>
         </div>
-
-        <div class="glass-card rounded-xl p-5">
-          <h3 class="text-sm font-bold text-slate-200 mb-3">상위 보유 비중 분포</h3>
-          <div class="relative h-60 w-full flex items-center justify-center">
-            <canvas id="holdingsChart"></canvas>
-          </div>
-        </div>
       `;
 
       renderChart(inv);
+    }
+
+    function renderChart(inv) {
+      const ctx = document.getElementById('holdingsChart');
+      if (!ctx) return;
+      if (portfolioChart) portfolioChart.destroy();
+
+      // 버튼 스타일 동기화
+      const btnPie = document.getElementById('btn-pie');
+      const btnDoughnut = document.getElementById('btn-doughnut');
+      if (btnPie && btnDoughnut) {
+        btnPie.className = chartType === 'pie'
+          ? 'px-2.5 py-1 rounded text-xs font-semibold bg-emerald-500 text-slate-950 transition'
+          : 'px-2.5 py-1 rounded text-xs font-semibold text-slate-400 hover:text-white transition';
+        btnDoughnut.className = chartType === 'doughnut'
+          ? 'px-2.5 py-1 rounded text-xs font-semibold bg-emerald-500 text-slate-950 transition'
+          : 'px-2.5 py-1 rounded text-xs font-semibold text-slate-400 hover:text-white transition';
+      }
+
+      const top10 = inv.holdings.slice(0, 10);
+      const otherWeight = Math.max(0, round2(100 - top10.reduce((sum, h) => sum + h.weight, 0)));
+      
+      const labels = [...top10.map(h => h.ticker)];
+      const data = [...top10.map(h => h.weight)];
+      const metaList = [...top10.map(h => ({ name: h.name, valueB: h.valueB, shares: h.shares }))];
+
+      if (otherWeight > 0) {
+        labels.push('기타');
+        data.push(otherWeight);
+        metaList.push({ name: '나머지 보유 종목 합산', valueB: null, shares: null });
+      }
+
+      portfolioChart = new Chart(ctx, {
+        type: chartType,
+        data: {
+          labels,
+          datasets: [{
+            data,
+            backgroundColor: CHART_COLORS.slice(0, data.length),
+            borderColor: '#090d16',
+            borderWidth: 2,
+            hoverOffset: 10
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: chartType === 'doughnut' ? '58%' : '0%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              backgroundColor: '#0f172a',
+              titleColor: '#10b981',
+              bodyColor: '#f1f5f9',
+              borderColor: '#334155',
+              borderWidth: 1,
+              padding: 10,
+              callbacks: {
+                title: (items) => {
+                  const idx = items[0].dataIndex;
+                  return `${labels[idx]} (${metaList[idx].name})`;
+                },
+                label: (item) => {
+                  const idx = item.dataIndex;
+                  const m = metaList[idx];
+                  if (m.valueB !== null) {
+                    return [
+                      ` 포트폴리오 비중: ${data[idx]}%`,
+                      ` 평가 금액: $${m.valueB}B`,
+                      ` 보유 수량: ${m.shares.toLocaleString()}주`
+                    ];
+                  }
+                  return ` 포트폴리오 비중: ${data[idx]}%`;
+                }
+              }
+            }
+          }
+        }
+      });
     }
 
     function openTimelineModal(investorId, holdingIndex) {
@@ -337,37 +461,6 @@
       if (e.target.id === 'timelineModal') {
         document.getElementById('timelineModal').classList.add('hidden');
       }
-    }
-
-    function renderChart(inv) {
-      const ctx = document.getElementById('holdingsChart');
-      if (!ctx) return;
-      if (portfolioChart) portfolioChart.destroy();
-
-      const top6 = inv.holdings.slice(0, 6);
-      const otherWeight = Math.max(0, round2(100 - top6.reduce((sum, h) => sum + h.weight, 0)));
-      const labels = [...top6.map(h => h.ticker), '기타'];
-      const data = [...top6.map(h => h.weight), otherWeight];
-
-      portfolioChart = new Chart(ctx, {
-        type: 'doughnut',
-        data: {
-          labels,
-          datasets: [{
-            data,
-            backgroundColor: ['#10b981', '#3b82f6', '#8b5cf6', '#f59e0b', '#ec4899', '#06b6d4', '#334155'],
-            borderWidth: 0
-          }]
-        },
-        options: {
-          responsive: true,
-          maintainAspectRatio: false,
-          cutout: '65%',
-          plugins: {
-            legend: { position: 'bottom', labels: { color: '#cbd5e1', font: { size: 11 }, boxWidth: 10 } }
-          }
-        }
-      });
     }
 
     function renderConsensus() {
@@ -421,9 +514,9 @@
     document.querySelectorAll('.filter-btn').forEach(btn => {
       btn.addEventListener('click', () => {
         document.querySelectorAll('.filter-btn').forEach(b => {
-          b.className = 'filter-btn px-2.5 py-1 rounded-md text-xs font-medium bg-slate-800/80 text-slate-400 hover:text-white';
+          b.className = 'filter-btn px-2 py-1 rounded-md text-[11px] font-medium bg-slate-800/80 text-slate-400 hover:text-white';
         });
-        btn.className = 'filter-btn active px-2.5 py-1 rounded-md text-xs font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
+        btn.className = 'filter-btn active px-2 py-1 rounded-md text-[11px] font-medium bg-emerald-500/20 text-emerald-300 border border-emerald-500/40';
         currentStyle = btn.dataset.style;
         renderInvestorList();
       });
