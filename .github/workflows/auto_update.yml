@@ -2,8 +2,8 @@ name: Auto Update SEC 13F Data
 
 on:
   schedule:
-    # 24시간 30분마다 자동 실행
-    - cron: '*/30 * * * *'
+    # 30분마다 실행은 Cloudflare 알람이 보냅니다. 아래는 예비용(하루 한 번)
+    - cron: '13 0 * * *'
   workflow_dispatch: # GitHub Actions 탭에서 수동 즉시 실행 허용
 
 permissions:
