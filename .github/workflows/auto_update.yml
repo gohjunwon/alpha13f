@@ -2,16 +2,27 @@ name: Auto Update SEC 13F Data
 
 on:
   schedule:
-    # 30분마다 실행은 Cloudflare 알람이 보냅니다. 아래는 예비용(하루 한 번)
-    - cron: '13 0 * * *'
-  workflow_dispatch: # GitHub Actions 탭에서 수동 즉시 실행 허용
+    # 13F는 분기 자료라 자주 받을 필요가 없습니다. 새 공시가 없으면 아무것도 받지 않고 끝납니다.
+    - cron: '13 0 * * *'                 # 매일 한 번 (한국 09:13)
+    - cron: '43 */6 10-20 2,5,8,11 *'    # 공시가 몰리는 2·5·8·11월 10~20일엔 6시간마다
+  workflow_dispatch:
+    inputs:
+      force:
+        description: '새 공시가 없어도 다시 계산'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
 
+concurrency:
+  group: update-13f
+  cancel-in-progress: false
+
 jobs:
   update-13f-data:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -27,11 +38,20 @@ jobs:
           pip install edgartools pandas
 
       - name: Run SEC 13F scraper
-        run: python update_13f.py
+        env:
+          SEC_UA: ${{ secrets.SEC_UA }}
+        run: |
+          if [ "${{ inputs.force }}" = "true" ]; then python update_13f.py --force; else python update_13f.py; fi
 
       - name: Commit and push updated data.json
         run: |
           git config --global user.name "github-actions[bot]"
           git config --global user.email "github-actions[bot]@users.noreply.github.com"
           git add data.json
-          git diff --quiet && git diff --staged --quiet || (git commit -m "chore: update SEC 13F portfolio data" && git push)
+          git diff --staged --quiet && exit 0
+          git commit -q -m "chore: update SEC 13F portfolio data"
+          for i in 1 2 3; do
+            git pull -q --rebase -X theirs origin main && git push -q && exit 0
+            sleep 5
+          done
+          exit 1
