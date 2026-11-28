@@ -10,14 +10,14 @@ from edgar import Company, set_identity
 # GitHub 비밀값 SEC_UA(예: "Alpha13F 내이메일@example.com")에서 읽고, 없으면 기본값을 씁니다.
 set_identity(os.environ.get("SEC_UA", "").strip() or "Alpha13F_Tracker admin@alpha13f-tracker.io")
 
-SCHEMA = 2            # 계산 방식이 바뀌면 올림 → 새 공시가 없어도 한 번 다시 계산
+SCHEMA = 3            # 계산 방식이 바뀌면 올림 → 새 공시가 없어도 한 번 다시 계산
 STALE_QUARTERS = 2    # 가장 최근 분기보다 이만큼 이상 뒤처진 투자자는 '오래된 자료'
 SEC_DOLLAR_SWITCH = "2023-01-03"  # 이날부터 접수된 13F는 금액이 달러 단위, 그 전은 천 달러 단위
 
 INVESTORS_META = [
     {"id": "buffett", "cik": "0001067983", "name": "워런 버핏", "enName": "Warren Buffett", "firm": "Berkshire Hathaway", "style": "value", "styleLabel": "가치투자", "philosophy": "경제적 해자를 가진 우량 기업의 장기 보유 및 현금흐름 중시"},
     {"id": "dalio", "cik": "0001350694", "name": "레이 달리오", "enName": "Ray Dalio", "firm": "Bridgewater Associates", "style": "macro", "styleLabel": "매크로/헤지", "philosophy": "올웨더(All Weather) 리스크 패리티 및 글로벌 거시경제 분산"},
-    {"id": "ackman", "cik": "0001336528", "name": "빌 애크먼", "enName": "Bill Ackman", "firm": "Pershing Square Capital", "style": "activist", "styleLabel": "행동주의", "philosophy": "소수 우량 기업에 대한 초집중 투자 및 지배구조 개선"},
+    {"id": "ackman", "cik": "0002026053", "name": "빌 애크먼", "enName": "Bill Ackman", "firm": "Pershing Square Capital", "style": "activist", "styleLabel": "행동주의", "philosophy": "소수 우량 기업에 대한 초집중 투자 및 지배구조 개선"},
     {"id": "burry", "cik": "0001649339", "name": "마이클 버리", "enName": "Michael Burry", "firm": "Scion Asset Management", "style": "value", "styleLabel": "가치투자", "philosophy": "극단적 저평가 역발상 가치투자 및 거시적 리스크 헷징"},
     {"id": "druckenmiller", "cik": "0001536411", "name": "스탠리 드러켄밀러", "enName": "Stanley Druckenmiller", "firm": "Duquesne Family Office", "style": "macro", "styleLabel": "매크로/헤지", "philosophy": "유동성 사이클과 AI·기술 패러다임 변화에 따른 유연한 베팅"},
     {"id": "wood", "cik": "0001697748", "name": "캐시 우드", "enName": "Cathie Wood", "firm": "ARK Investment Management", "style": "growth", "styleLabel": "성장/혁신", "philosophy": "AI, 유전체학, 로보틱스, 블록체인 등 파괴적 혁신 기업 집중"},
@@ -146,7 +146,7 @@ def latest_accessions():
     out = {}
     for meta in INVESTORS_META:
         try:
-            fl = Company(meta["cik"]).get_filings(form="13F-HR")
+            fl = Company(meta["cik"]).get_filings(form="13F-HR", amendments=False)
             out[meta["id"]] = str(getattr(fl[0], "accession_no", "")) if fl and len(fl) else ""
         except Exception as e:
             print(f"  [확인 실패] {meta['enName']}: {e}")
@@ -178,7 +178,8 @@ def fetch_all_13f():
         try:
             print(f"[{meta['enName']}] 조회 시작...")
             company = Company(meta["cik"])
-            filings = company.get_filings(form="13F-HR")
+            # 정정공시(13F-HR/A)는 일부 종목만 담긴 경우가 많아 원본 분기 자료를 덮어쓰지 않도록 뺍니다
+            filings = company.get_filings(form="13F-HR", amendments=False)
             if not filings or len(filings) == 0:
                 print(f"  -> 13F-HR 공시 없음: {meta['enName']}")
                 continue
@@ -341,6 +342,11 @@ def fetch_all_13f():
         except Exception as e:
             print(f"Error fetching {meta['enName']}: {e}")
             traceback.print_exc()
+            # 일시적 오류로 투자자가 통째로 사라지지 않도록 이전 자료를 유지(다음 실행 때 다시 시도)
+            prev = next((i for i in old.get("investors", []) if i.get("id") == meta["id"] and i.get("cik") == meta["cik"]), None)
+            if prev:
+                prev = dict(prev, accession="")
+                results.append(prev)
 
     # 오래된 자료 표시: 전체에서 가장 최근 보고 분기보다 STALE_QUARTERS 이상 뒤처지면 stale
     qs = [quarter_index(r["reportPeriod"]) for r in results if quarter_index(r["reportPeriod"]) is not None]
